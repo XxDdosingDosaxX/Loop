@@ -80,6 +80,15 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             WCSession.default.activate()
         }
 
+        // Force complication refresh when app becomes active
+        let server = CLKComplicationServer.sharedInstance()
+        for complication in server.activeComplications ?? [] {
+            server.reloadTimeline(for: complication)
+        }
+
+        // Schedule next background refresh
+        scheduleBackgroundRefresh()
+
         NotificationCenter.default.post(name: type(of: self).didBecomeActiveNotification, object: self)
     }
 
@@ -87,6 +96,16 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
         UserDefaults.standard.startOnChartPage = (WKExtension.shared().visibleInterfaceController as? ChartHUDController) != nil
 
         NotificationCenter.default.post(name: type(of: self).willResignActiveNotification, object: self)
+    }
+
+    private func scheduleBackgroundRefresh() {
+        // Schedule a background refresh every 5 minutes to keep complications updated
+        let preferredDate = Date(timeIntervalSinceNow: TimeInterval(5 * 60))
+        WKExtension.shared().scheduleBackgroundRefresh(withPreferredDate: preferredDate, userInfo: nil) { (error) in
+            if let error = error {
+                self.log.error("scheduleBackgroundRefresh error: %{public}@", String(describing: error))
+            }
+        }
     }
 
     // Presumably the main thread?
@@ -97,6 +116,12 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             switch task {
             case is WKApplicationRefreshBackgroundTask:
                 log.default("Processing WKApplicationRefreshBackgroundTask")
+                // Reload complications and schedule next refresh
+                let server = CLKComplicationServer.sharedInstance()
+                for complication in server.activeComplications ?? [] {
+                    server.reloadTimeline(for: complication)
+                }
+                scheduleBackgroundRefresh()
                 break
             case let task as WKSnapshotRefreshBackgroundTask:
                 log.default("Processing WKSnapshotRefreshBackgroundTask")
@@ -195,6 +220,9 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             log.default("Reloading complication timeline")
             server.reloadTimeline(for: complication)
         }
+
+        // Schedule next background refresh to keep complications alive
+        scheduleBackgroundRefresh()
     }
 }
 
