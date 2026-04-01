@@ -107,9 +107,17 @@ extension CLKComplicationTemplate {
         timeFormatter.dateStyle = .none
         timeFormatter.timeStyle = .short
 
+        // Compact date string for complication (e.g. "Apr 1")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMM d"
+        let dateString = dateFormatter.string(from: date)
+        let dateText = CLKSimpleTextProvider(text: dateString)
+        dateText.tintColor = .lightGray
+
         switch family {
         case .modularSmall:
-            let template = CLKComplicationTemplateModularSmallStackText(line1TextProvider: glucoseAndTrendText, line2TextProvider: timeText)
+            let dateAndTime = CLKTextProvider(byJoining: [dateText, timeText], separator: " | ")
+            let template = CLKComplicationTemplateModularSmallStackText(line1TextProvider: glucoseAndTrendText, line2TextProvider: dateAndTime)
             template.highlightLine2 = true
             return template
         case .modularLarge:
@@ -134,12 +142,13 @@ extension CLKComplicationTemplate {
                 textProvider: CLKSimpleTextProvider(text: String(format: format, arguments: [
                     glucoseAndTrend,
                     eventualGlucoseText,
-                    timeFormatter.string(from: glucoseDate)
+                    dateString + " " + timeFormatter.string(from: glucoseDate)
                 ]
             )))
         case .graphicCorner:
             if #available(watchOSApplicationExtension 5.0, *) {
-                return CLKComplicationTemplateGraphicCornerStackText(innerTextProvider: timeText, outerTextProvider: glucoseAndTrendText)
+                let dateAndTime = CLKTextProvider(byJoining: [dateText, timeText], separator: " | ")
+                return CLKComplicationTemplateGraphicCornerStackText(innerTextProvider: dateAndTime, outerTextProvider: glucoseAndTrendText)
             } else {
                 return nil
             }
@@ -170,14 +179,15 @@ extension CLKComplicationTemplate {
                 else {
                     fatalError("\(#function) invoked with .graphicCircular must return a subclass of CLKComplicationTemplateGraphicCircular")
                 }
-                return CLKComplicationTemplateGraphicBezelCircularText(circularTemplate: circularTemplate, textProvider: timeText)
+                let dateAndTime = CLKTextProvider(byJoining: [dateText, timeText], separator: " | ")
+                return CLKComplicationTemplateGraphicBezelCircularText(circularTemplate: circularTemplate, textProvider: dateAndTime)
             } else {
                 return nil
             }
         case .graphicRectangular:
             if #available(watchOSApplicationExtension 5.0, *) {
                 return CLKComplicationTemplateGraphicRectangularLargeImage(
-                    textProvider: CLKTextProvider(byJoining: [glucoseAndTrendText, timeText], separator: " "),
+                    textProvider: CLKTextProvider(byJoining: [glucoseAndTrendText, dateText, timeText], separator: " | "),
                     imageProvider: CLKFullColorImageProvider(fullColorImage: makeChart() ?? UIImage())
                 )
             } else {
