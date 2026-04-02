@@ -24,7 +24,6 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
 
     private var observers: [NSKeyValueObservation] = []
     private var notifications: [NSObjectProtocol] = []
-    private var glucoseObserverQuery: HKObserverQuery?
 
     static func shared() -> ExtensionDelegate {
         return WKExtension.shared().extensionDelegate
@@ -70,87 +69,7 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
         }
     }
 
-    /// Watches HealthKit for new blood glucose samples.
-    /// When new glucose arrives (synced from iPhone), reloads the complication timeline.
-    /// This is event-driven and doesn't count against the ClockKit reload budget the same way.
-    private func startGlucoseObserver() {
-        guard HKHealthStore.isHealthDataAvailable() else { return }
-
-        let glucoseType = HKQuantityType.quantityType(forIdentifier: .bloodGlucose)!
-        let healthStore = loopManager.healthStore
-
-        // Request read access
-        healthStore.requestAuthorization(toShare: nil, read: [glucoseType]) { [weak self] success, error in
-            guard success, let self = self else { return }
-
-            // Set up observer query - fires whenever new glucose samples appear
-            let query = HKObserverQuery(sampleType: glucoseType, predicate: nil) { [weak self] _, completionHandler, error in
-                guard error == nil, let self = self else {
-                    completionHandler()
-                    return
-                }
-
-                self.log.default("HKObserverQuery fired: new glucose in HealthKit")
-
-                // Fetch the latest glucose sample directly from HealthKit
-                let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
-                let sampleQuery = HKSampleQuery(
-                    sampleType: glucoseType,
-                    predicate: nil,
-                    limit: 1,
-                    sortDescriptors: [sortDescriptor]
-                ) { _, samples, _ in
-                    DispatchQueue.main.async {
-                        if let sample = samples?.first as? HKQuantitySample {
-                            // Update activeContext with fresh glucose from HealthKit
-                            if let context = self.loopManager.activeContext {
-                                context.glucose = sample.quantity
-                                context.glucoseDate = sample.endDate
-                                // Keep existing trend if available, HealthKit doesn't provide it
-                            } else {
-                                // No activeContext yet - create a minimal one so complication has data
-                                let context = WatchContext()
-                                context.glucose = sample.quantity
-                                context.glucoseDate = sample.endDate
-                                context.displayGlucoseUnit = .milligramsPerDeciliter
-                                self.loopManager.updateContext(context)
-                            }
-                        }
-
-                        // Reload complications with the updated context
-                        let server = CLKComplicationServer.sharedInstance()
-                        for complication in server.activeComplications ?? [] {
-                            server.reloadTimeline(for: complication)
-                        }
-
-                        // Call completionHandler after all work is done
-                        completionHandler()
-                    }
-                }
-                healthStore.execute(sampleQuery)
-            }
-
-            self.glucoseObserverQuery = query
-            healthStore.execute(query)
-
-            // Enable background delivery so observer fires even when app is suspended
-            if #available(watchOSApplicationExtension 8.0, *) {
-                healthStore.enableBackgroundDelivery(for: glucoseType, frequency: .immediate) { success, error in
-                    if success {
-                        self.log.default("HealthKit background delivery enabled for glucose")
-                    } else if let error = error {
-                        self.log.error("Failed to enable background delivery: %{public}@", String(describing: error))
-                    }
-                }
-            }
-        }
-    }
-
     func applicationDidFinishLaunching() {
-        // Start background refresh chain immediately
-        scheduleBackgroundRefresh()
-        // Watch for new glucose samples in HealthKit to trigger complication updates
-        startGlucoseObserver()
         UNUserNotificationCenter.current().delegate = self
         if #available(watchOSApplicationExtension 5.0, *) {
             INRelevantShortcutStore.default.registerShortcuts()
@@ -162,19 +81,6 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             WCSession.default.activate()
         }
 
-        // Actively request fresh data from iPhone
-        loopManager.requestContextUpdate()
-        loopManager.requestGlucoseBackfillIfNecessary()
-
-        // Force complication refresh when app becomes active
-        let server = CLKComplicationServer.sharedInstance()
-        for complication in server.activeComplications ?? [] {
-            server.reloadTimeline(for: complication)
-        }
-
-        // Schedule next background refresh
-        scheduleBackgroundRefresh()
-
         NotificationCenter.default.post(name: type(of: self).didBecomeActiveNotification, object: self)
     }
 
@@ -182,16 +88,6 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
         UserDefaults.standard.startOnChartPage = (WKExtension.shared().visibleInterfaceController as? ChartHUDController) != nil
 
         NotificationCenter.default.post(name: type(of: self).willResignActiveNotification, object: self)
-    }
-
-    private func scheduleBackgroundRefresh() {
-        // Schedule a background refresh every 5 minutes to keep complications updated
-        let preferredDate = Date(timeIntervalSinceNow: TimeInterval(5 * 60))
-        WKExtension.shared().scheduleBackgroundRefresh(withPreferredDate: preferredDate, userInfo: nil) { (error) in
-            if let error = error {
-                self.log.error("scheduleBackgroundRefresh error: %{public}@", String(describing: error))
-            }
-        }
     }
 
     // Presumably the main thread?
@@ -202,14 +98,6 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             switch task {
             case is WKApplicationRefreshBackgroundTask:
                 log.default("Processing WKApplicationRefreshBackgroundTask")
-                // Actively request fresh data from iPhone
-                loopManager.requestContextUpdate()
-                // Reload complications and schedule next refresh
-                let server = CLKComplicationServer.sharedInstance()
-                for complication in server.activeComplications ?? [] {
-                    server.reloadTimeline(for: complication)
-                }
-                scheduleBackgroundRefresh()
                 break
             case let task as WKSnapshotRefreshBackgroundTask:
                 log.default("Processing WKSnapshotRefreshBackgroundTask")
@@ -309,13 +197,10 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             server.reloadTimeline(for: complication)
         }
 
-        // Reload WidgetKit complication (reads glucose from HealthKit)
+        // Also reload WidgetKit complications if available
         if #available(watchOSApplicationExtension 9.0, *) {
             WidgetCenter.shared.reloadAllTimelines()
         }
-
-        // Schedule next background refresh to keep complications alive
-        scheduleBackgroundRefresh()
     }
 }
 
