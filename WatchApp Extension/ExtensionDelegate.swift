@@ -99,29 +99,34 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
                     limit: 1,
                     sortDescriptors: [sortDescriptor]
                 ) { _, samples, _ in
-                    guard let sample = samples?.first as? HKQuantitySample else {
-                        completionHandler()
-                        return
-                    }
-
                     DispatchQueue.main.async {
-                        // Update activeContext with fresh glucose from HealthKit
-                        if let context = self.loopManager.activeContext {
-                            context.glucose = sample.quantity
-                            context.glucoseDate = sample.endDate
-                            context.glucoseTrend = nil // HealthKit doesn't provide trend
+                        if let sample = samples?.first as? HKQuantitySample {
+                            // Update activeContext with fresh glucose from HealthKit
+                            if let context = self.loopManager.activeContext {
+                                context.glucose = sample.quantity
+                                context.glucoseDate = sample.endDate
+                                // Keep existing trend if available, HealthKit doesn't provide it
+                            } else {
+                                // No activeContext yet — create a minimal one so complication has data
+                                let context = WatchContext()
+                                context.glucose = sample.quantity
+                                context.glucoseDate = sample.endDate
+                                context.displayGlucoseUnit = .milligramsPerDeciliter
+                                self.loopManager.updateContext(context)
+                            }
                         }
 
-                        // Now reload complications with the updated context
+                        // Reload complications with the updated context
                         let server = CLKComplicationServer.sharedInstance()
                         for complication in server.activeComplications ?? [] {
                             server.reloadTimeline(for: complication)
                         }
+
+                        // Call completionHandler after all work is done
+                        completionHandler()
                     }
                 }
                 healthStore.execute(sampleQuery)
-
-                completionHandler()
             }
 
             self.glucoseObserverQuery = query
