@@ -309,6 +309,25 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             server.reloadTimeline(for: complication)
         }
 
+        // Write glucose to shared app group for WidgetKit complication
+        if let context = loopManager.activeContext,
+           let glucose = context.glucose,
+           let unit = context.displayGlucoseUnit {
+            let groupID = Bundle.main.appGroupSuiteName
+            if let defaults = UserDefaults(suiteName: groupID) {
+                let mgdl = HKUnit.gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci))
+                defaults.set(glucose.doubleValue(for: mgdl), forKey: "widgetGlucoseValue")
+                defaults.set(context.glucoseDate ?? Date(), forKey: "widgetGlucoseDate")
+                defaults.set(context.glucoseTrend?.symbol ?? "", forKey: "widgetGlucoseTrend")
+                defaults.set(unit == .millimolesPerLiter() ? "mmol/L" : "mg/dL", forKey: "widgetGlucoseUnit")
+                defaults.synchronize()
+                log.default("Wrote glucose to app group for widget")
+            }
+        }
+
+        // Reload WidgetKit complication
+        WidgetCenter.shared.reloadAllTimelines()
+
         // Schedule next background refresh to keep complications alive
         scheduleBackgroundRefresh()
     }

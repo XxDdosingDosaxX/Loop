@@ -60,6 +60,7 @@ widget_target.build_configurations.each do |config|
   config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = '$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks'
   config.build_settings['SKIP_INSTALL'] = 'YES'
   config.build_settings['PRODUCT_NAME'] = '$(TARGET_NAME)'
+  config.build_settings['APP_GROUP_IDENTIFIER'] = 'group.com.' + team_id + '.loopkit.LoopGroup'
   config.build_settings['ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME'] = 'WidgetBackground'
   config.build_settings['GENERATE_INFOPLIST_FILE'] = 'NO'
 end
