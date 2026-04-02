@@ -84,20 +84,42 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
 
             // Set up observer query - fires whenever new glucose samples appear
             let query = HKObserverQuery(sampleType: glucoseType, predicate: nil) { [weak self] _, completionHandler, error in
-                guard error == nil else {
+                guard error == nil, let self = self else {
                     completionHandler()
                     return
                 }
 
-                self?.log.default("HKObserverQuery fired: new glucose in HealthKit")
+                self.log.default("HKObserverQuery fired: new glucose in HealthKit")
 
-                DispatchQueue.main.async {
-                    // Reload complications with fresh data
-                    let server = CLKComplicationServer.sharedInstance()
-                    for complication in server.activeComplications ?? [] {
-                        server.reloadTimeline(for: complication)
+                // Fetch the latest glucose sample directly from HealthKit
+                let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+                let sampleQuery = HKSampleQuery(
+                    sampleType: glucoseType,
+                    predicate: nil,
+                    limit: 1,
+                    sortDescriptors: [sortDescriptor]
+                ) { _, samples, _ in
+                    guard let sample = samples?.first as? HKQuantitySample else {
+                        completionHandler()
+                        return
+                    }
+
+                    DispatchQueue.main.async {
+                        // Update activeContext with fresh glucose from HealthKit
+                        if let context = self.loopManager.activeContext {
+                            context.glucose = sample.quantity
+                            context.glucoseDate = sample.endDate
+                            context.glucoseTrend = nil // HealthKit doesn't provide trend
+                        }
+
+                        // Now reload complications with the updated context
+                        let server = CLKComplicationServer.sharedInstance()
+                        for complication in server.activeComplications ?? [] {
+                            server.reloadTimeline(for: complication)
+                        }
                     }
                 }
+                healthStore.execute(sampleQuery)
 
                 completionHandler()
             }
