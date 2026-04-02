@@ -310,7 +310,9 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
         }
 
         // Reload WidgetKit complication (reads glucose from HealthKit)
-        WidgetCenter.shared.reloadAllTimelines()
+        if #available(watchOSApplicationExtension 9.0, *) {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
 
         // Schedule next background refresh to keep complications alive
         scheduleBackgroundRefresh()
