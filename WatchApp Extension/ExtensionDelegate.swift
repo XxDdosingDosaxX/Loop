@@ -69,6 +69,8 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
     }
 
     func applicationDidFinishLaunching() {
+        // Start background refresh chain immediately
+        scheduleBackgroundRefresh()
         UNUserNotificationCenter.current().delegate = self
         if #available(watchOSApplicationExtension 5.0, *) {
             INRelevantShortcutStore.default.registerShortcuts()
@@ -79,6 +81,10 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
         if WCSession.default.activationState != .activated {
             WCSession.default.activate()
         }
+
+        // Actively request fresh data from iPhone
+        loopManager.requestContextUpdate()
+        loopManager.requestGlucoseBackfillIfNecessary()
 
         // Force complication refresh when app becomes active
         let server = CLKComplicationServer.sharedInstance()
@@ -116,6 +122,8 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             switch task {
             case is WKApplicationRefreshBackgroundTask:
                 log.default("Processing WKApplicationRefreshBackgroundTask")
+                // Actively request fresh data from iPhone
+                loopManager.requestContextUpdate()
                 // Reload complications and schedule next refresh
                 let server = CLKComplicationServer.sharedInstance()
                 for complication in server.activeComplications ?? [] {
