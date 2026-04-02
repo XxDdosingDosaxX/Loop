@@ -14,6 +14,7 @@ import os
 import os.log
 import UserNotifications
 import LoopKit
+import WidgetKit
 
 
 final class ExtensionDelegate: NSObject, WKExtensionDelegate {
