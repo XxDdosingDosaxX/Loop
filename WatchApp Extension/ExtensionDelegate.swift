@@ -23,6 +23,7 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
 
     private var observers: [NSKeyValueObservation] = []
     private var notifications: [NSObjectProtocol] = []
+    private var glucoseObserverQuery: HKObserverQuery?
 
     static func shared() -> ExtensionDelegate {
         return WKExtension.shared().extensionDelegate
@@ -68,9 +69,58 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
         }
     }
 
+    /// Watches HealthKit for new blood glucose samples.
+    /// When new glucose arrives (synced from iPhone), reloads the complication timeline.
+    /// This is event-driven and doesn't count against the ClockKit reload budget the same way.
+    private func startGlucoseObserver() {
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+
+        let glucoseType = HKQuantityType.quantityType(forIdentifier: .bloodGlucose)!
+        let healthStore = loopManager.healthStore
+
+        // Request read access
+        healthStore.requestAuthorization(toShare: nil, read: [glucoseType]) { [weak self] success, error in
+            guard success, let self = self else { return }
+
+            // Set up observer query - fires whenever new glucose samples appear
+            let query = HKObserverQuery(sampleType: glucoseType, predicate: nil) { [weak self] _, completionHandler, error in
+                guard error == nil else {
+                    completionHandler()
+                    return
+                }
+
+                self?.log.default("HKObserverQuery fired: new glucose in HealthKit")
+
+                DispatchQueue.main.async {
+                    // Reload complications with fresh data
+                    let server = CLKComplicationServer.sharedInstance()
+                    for complication in server.activeComplications ?? [] {
+                        server.reloadTimeline(for: complication)
+                    }
+                }
+
+                completionHandler()
+            }
+
+            self.glucoseObserverQuery = query
+            healthStore.execute(query)
+
+            // Enable background delivery so observer fires even when app is suspended
+            healthStore.enableBackgroundDelivery(for: glucoseType, frequency: .immediate) { success, error in
+                if success {
+                    self.log.default("HealthKit background delivery enabled for glucose")
+                } else if let error = error {
+                    self.log.error("Failed to enable background delivery: %{public}@", String(describing: error))
+                }
+            }
+        }
+    }
+
     func applicationDidFinishLaunching() {
         // Start background refresh chain immediately
         scheduleBackgroundRefresh()
+        // Watch for new glucose samples in HealthKit to trigger complication updates
+        startGlucoseObserver()
         UNUserNotificationCenter.current().delegate = self
         if #available(watchOSApplicationExtension 5.0, *) {
             INRelevantShortcutStore.default.registerShortcuts()
