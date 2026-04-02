@@ -106,11 +106,13 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             healthStore.execute(query)
 
             // Enable background delivery so observer fires even when app is suspended
-            healthStore.enableBackgroundDelivery(for: glucoseType, frequency: .immediate) { success, error in
-                if success {
-                    self.log.default("HealthKit background delivery enabled for glucose")
-                } else if let error = error {
-                    self.log.error("Failed to enable background delivery: %{public}@", String(describing: error))
+            if #available(watchOSApplicationExtension 8.0, *) {
+                healthStore.enableBackgroundDelivery(for: glucoseType, frequency: .immediate) { success, error in
+                    if success {
+                        self.log.default("HealthKit background delivery enabled for glucose")
+                    } else if let error = error {
+                        self.log.error("Failed to enable background delivery: %{public}@", String(describing: error))
+                    }
                 }
             }
         }
