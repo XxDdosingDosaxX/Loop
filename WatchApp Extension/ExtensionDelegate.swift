@@ -197,20 +197,6 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             server.reloadTimeline(for: complication)
         }
 
-        // Write glucose to shared app group for WidgetKit widget
-        if let context = loopManager.activeContext,
-           let glucose = context.glucose,
-           let unit = context.displayGlucoseUnit {
-            let groupID = Bundle.main.appGroupSuiteName
-            if let defaults = UserDefaults(suiteName: groupID) {
-                let mgdl = HKUnit.gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci))
-                defaults.set(glucose.doubleValue(for: mgdl), forKey: "wg_value")
-                defaults.set(context.glucoseDate ?? Date(), forKey: "wg_date")
-                defaults.set(context.glucoseTrend?.symbol ?? "", forKey: "wg_trend")
-                defaults.set(unit == .millimolesPerLiter() ? "mmol/L" : "mg/dL", forKey: "wg_unit")
-            }
-        }
-
         // Reload WidgetKit complications
         if #available(watchOSApplicationExtension 9.0, *) {
             WidgetCenter.shared.reloadAllTimelines()

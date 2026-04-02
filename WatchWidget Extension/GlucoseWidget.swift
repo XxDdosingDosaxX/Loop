@@ -1,49 +1,43 @@
 import WidgetKit
 import SwiftUI
+import HealthKit
 
 struct GlucoseEntry: TimelineEntry {
     let date: Date
     let glucose: String
-    let trend: String
     let age: String
     let isStale: Bool
     let dateString: String
     static var placeholder: GlucoseEntry {
-        GlucoseEntry(date: Date(), glucose: "120", trend: "->", age: "1m", isStale: false, dateString: "Apr 2")
+        GlucoseEntry(date: Date(), glucose: "120", age: "1m", isStale: false, dateString: "Apr 2")
     }
 }
 
 struct GlucoseTimelineProvider: TimelineProvider {
+    let healthStore = HKHealthStore()
+    let glucoseType = HKQuantityType.quantityType(forIdentifier: .bloodGlucose)!
     func placeholder(in context: Context) -> GlucoseEntry { .placeholder }
-    func getSnapshot(in context: Context, completion: @escaping (GlucoseEntry) -> Void) {
-        completion(readGlucose())
-    }
+    func getSnapshot(in context: Context, completion: @escaping (GlucoseEntry) -> Void) { fetchGlucose(completion: completion) }
     func getTimeline(in context: Context, completion: @escaping (Timeline<GlucoseEntry>) -> Void) {
-        let entry = readGlucose()
-        let next = Date().addingTimeInterval(5 * 60)
-        completion(Timeline(entries: [entry], policy: .after(next)))
-    }
-
-    private func readGlucose() -> GlucoseEntry {
-        let df = DateFormatter(); df.dateFormat = "MMM d"
-        let dateStr = df.string(from: Date())
-        let groupID = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String ?? ""
-        let defaults = UserDefaults(suiteName: groupID) ?? UserDefaults.standard
-        let glucoseValue = defaults.double(forKey: "wg_value")
-        guard glucoseValue > 0, let glucoseDate = defaults.object(forKey: "wg_date") as? Date else {
-            return GlucoseEntry(date: Date(), glucose: "---", trend: "", age: "", isStale: true, dateString: dateStr)
+        fetchGlucose { entry in
+            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(5 * 60))))
         }
-        let trendSymbol = defaults.string(forKey: "wg_trend") ?? ""
-        let unitStr = defaults.string(forKey: "wg_unit") ?? "mg/dL"
-        let glucoseStr: String
-        if unitStr == "mmol/L" { glucoseStr = String(format: "%.1f", glucoseValue / 18.0) }
-        else { glucoseStr = String(format: "%.0f", glucoseValue) }
-        let sec = Date().timeIntervalSince(glucoseDate)
-        let stale = sec > 360
-        let min = Int(sec / 60)
-        let age: String
-        if min < 1 { age = "now" } else if min < 60 { age = "\(min)m" } else { age = "\(min/60)h\(min%60)m" }
-        return GlucoseEntry(date: Date(), glucose: stale ? "---" : glucoseStr, trend: stale ? "" : trendSymbol, age: age, isStale: stale, dateString: dateStr)
+    }
+    private func fetchGlucose(completion: @escaping (GlucoseEntry) -> Void) {
+        let df = DateFormatter(); df.dateFormat = "MMM d"; let dateStr = df.string(from: Date())
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        let q = HKSampleQuery(sampleType: glucoseType, predicate: nil, limit: 1, sortDescriptors: [sort]) { _, samples, _ in
+            guard let s = samples?.first as? HKQuantitySample else {
+                completion(GlucoseEntry(date: Date(), glucose: "---", age: "", isStale: true, dateString: dateStr)); return
+            }
+            let mgdl = HKUnit.gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci))
+            let val = String(format: "%.0f", s.quantity.doubleValue(for: mgdl))
+            let sec = Date().timeIntervalSince(s.endDate); let stale = sec > 360; let min = Int(sec / 60)
+            let age: String
+            if min < 1 { age = "now" } else if min < 60 { age = "\(min)m" } else { age = "\(min/60)h\(min%60)m" }
+            completion(GlucoseEntry(date: Date(), glucose: stale ? "---" : val, age: age, isStale: stale, dateString: dateStr))
+        }
+        healthStore.execute(q)
     }
 }
 
@@ -53,8 +47,7 @@ struct CircularView: View {
         ZStack {
             AccessoryWidgetBackground()
             VStack(spacing: 0) {
-                Text(entry.glucose + entry.trend)
-                    .font(.system(size: entry.glucose.count > 3 ? 13 : 15, weight: .bold, design: .rounded))
+                Text(entry.glucose).font(.system(size: entry.glucose.count > 3 ? 14 : 16, weight: .bold, design: .rounded))
                     .foregroundColor(entry.isStale ? .gray : .white).minimumScaleFactor(0.7)
                 if !entry.age.isEmpty { Text(entry.age).font(.system(size: 9, design: .rounded)).foregroundColor(.secondary) }
             }
@@ -65,7 +58,7 @@ struct CornerView: View {
     let entry: GlucoseEntry
     var body: some View {
         VStack(alignment: .trailing, spacing: 0) {
-            Text(entry.glucose + entry.trend).font(.system(size: 20, weight: .bold, design: .rounded)).foregroundColor(entry.isStale ? .gray : .white)
+            Text(entry.glucose).font(.system(size: 20, weight: .bold, design: .rounded)).foregroundColor(entry.isStale ? .gray : .white)
             Text("\(entry.dateString) | \(entry.age)").font(.system(size: 10)).foregroundColor(.secondary)
         }
     }
@@ -75,16 +68,16 @@ struct RectangularView: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.glucose + entry.trend).font(.system(size: 22, weight: .bold, design: .rounded)).foregroundColor(entry.isStale ? .gray : .white)
-                HStack(spacing: 4) { Text(entry.dateString); Text("|"); Text(entry.age).foregroundColor(entry.isStale ? .red : .secondary) }.font(.system(size: 11)).foregroundColor(.secondary)
-            }
-            Spacer()
+                Text(entry.glucose).font(.system(size: 22, weight: .bold, design: .rounded)).foregroundColor(entry.isStale ? .gray : .white)
+                HStack(spacing: 4) { Text(entry.dateString); Text("|"); Text(entry.age).foregroundColor(entry.isStale ? .red : .secondary) }
+                    .font(.system(size: 11)).foregroundColor(.secondary)
+            }; Spacer()
         }
     }
 }
 struct InlineView: View {
     let entry: GlucoseEntry
-    var body: some View { Text("\(entry.glucose)\(entry.trend) | \(entry.dateString) | \(entry.age)") }
+    var body: some View { Text("\(entry.glucose) | \(entry.dateString) | \(entry.age)") }
 }
 
 @main
@@ -92,11 +85,10 @@ struct GlucoseWidget: Widget {
     let kind = "GlucoseWidget"
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: GlucoseTimelineProvider()) { entry in GlucoseWidgetView(entry: entry) }
-        .configurationDisplayName("Glucose").description("Live glucose from Loop")
-        .supportedFamilies([.accessoryCircular, .accessoryCorner, .accessoryRectangular, .accessoryInline])
+            .configurationDisplayName("Glucose").description("Live glucose from Loop")
+            .supportedFamilies([.accessoryCircular, .accessoryCorner, .accessoryRectangular, .accessoryInline])
     }
 }
-
 struct GlucoseWidgetView: View {
     @Environment(\.widgetFamily) var family
     let entry: GlucoseEntry
