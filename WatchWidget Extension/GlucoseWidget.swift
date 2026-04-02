@@ -37,7 +37,7 @@ struct GlucoseTimelineProvider: TimelineProvider {
                 completion(GlucoseEntry(date: Date(), glucose: "---", age: "", isStale: true, dateString: dateStr))
                 return
             }
-            let val = String(format: "%.0f", s.quantity.doubleValue(for: .milligramsPerDeciliter()))
+            let val = String(format: "%.0f", s.quantity.doubleValue(for: .init(from: "mg/dL")))
             let sec = Date().timeIntervalSince(s.endDate)
             let stale = sec > 360
             let min = Int(sec / 60)
