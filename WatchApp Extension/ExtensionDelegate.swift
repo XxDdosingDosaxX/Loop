@@ -107,7 +107,7 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
                                 context.glucoseDate = sample.endDate
                                 // Keep existing trend if available, HealthKit doesn't provide it
                             } else {
-                                // No activeContext yet — create a minimal one so complication has data
+                                // No activeContext yet - create a minimal one so complication has data
                                 let context = WatchContext()
                                 context.glucose = sample.quantity
                                 context.glucoseDate = sample.endDate
