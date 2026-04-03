@@ -230,6 +230,25 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             server.reloadTimeline(for: complication)
         }
 
+        // Write glucose data to UserDefaults for the WidgetKit widget.
+        // On watchOS, extensions embedded in the same WatchApp share
+        // UserDefaults.standard -- no App Groups needed.
+        if let context = loopManager.activeContext {
+            let defaults = UserDefaults.standard
+            if let glucose = context.glucose, let unit = context.displayGlucoseUnit {
+                defaults.set(glucose.doubleValue(for: unit), forKey: "widget_glucose_value")
+                defaults.set(unit.unitString, forKey: "widget_glucose_unit")
+            }
+            if let date = context.glucoseDate {
+                defaults.set(date, forKey: "widget_glucose_date")
+            }
+            if let trend = context.glucoseTrend {
+                defaults.set(trend.symbol, forKey: "widget_glucose_trend")
+            } else {
+                defaults.removeObject(forKey: "widget_glucose_trend")
+            }
+        }
+
         // Reload WidgetKit complications
         if #available(watchOSApplicationExtension 9.0, *) {
             WidgetCenter.shared.reloadAllTimelines()
