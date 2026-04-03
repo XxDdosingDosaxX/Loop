@@ -74,12 +74,23 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
         if #available(watchOSApplicationExtension 5.0, *) {
             INRelevantShortcutStore.default.registerShortcuts()
         }
+        // Kickstart the background-refresh chain for widget updates
+        scheduleBackgroundRefresh()
     }
 
     func applicationDidBecomeActive() {
         if WCSession.default.activationState != .activated {
             WCSession.default.activate()
         }
+
+        // Reload WidgetKit timelines when app becomes active
+        // (e.g. user taps complication to open app, then returns to watch face)
+        if #available(watchOSApplicationExtension 9.0, *) {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+
+        // Keep the background-refresh chain alive so the widget stays current
+        scheduleBackgroundRefresh()
 
         NotificationCenter.default.post(name: type(of: self).didBecomeActiveNotification, object: self)
     }
@@ -98,6 +109,12 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             switch task {
             case is WKApplicationRefreshBackgroundTask:
                 log.default("Processing WKApplicationRefreshBackgroundTask")
+                // Reload WidgetKit timelines on each background wake
+                if #available(watchOSApplicationExtension 9.0, *) {
+                    WidgetCenter.shared.reloadAllTimelines()
+                }
+                // Schedule the next background refresh (~5 min)
+                scheduleBackgroundRefresh()
                 break
             case let task as WKSnapshotRefreshBackgroundTask:
                 log.default("Processing WKSnapshotRefreshBackgroundTask")
@@ -124,6 +141,22 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
                 task.setTaskCompletedWithSnapshot(false)
             } else {
                 task.setTaskCompleted()
+            }
+        }
+    }
+
+    /// Schedules a background app refresh ~5 minutes from now.
+    /// When the task fires, the app wakes briefly, reloads WidgetKit
+    /// timelines, and schedules the next refresh -- creating a chain that
+    /// keeps the glucose complication up-to-date.
+    private func scheduleBackgroundRefresh() {
+        let preferredDate = Date(timeIntervalSinceNow: 5 * 60)
+        WKExtension.shared().scheduleBackgroundRefresh(
+            withPreferredDate: preferredDate,
+            userInfo: nil
+        ) { error in
+            if let error = error {
+                self.log.error("scheduleBackgroundRefresh error: %{public}@", String(describing: error))
             }
         }
     }
