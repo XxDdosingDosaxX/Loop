@@ -230,11 +230,11 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             server.reloadTimeline(for: complication)
         }
 
-        // Write glucose data to UserDefaults for the WidgetKit widget.
-        // On watchOS, extensions embedded in the same WatchApp share
-        // UserDefaults.standard -- no App Groups needed.
-        if let context = loopManager.activeContext {
-            let defaults = UserDefaults.standard
+        // Write glucose data to the shared App Group UserDefaults
+        // so the WidgetKit widget extension can read it.
+        if let context = loopManager.activeContext,
+           let groupID = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String,
+           let defaults = UserDefaults(suiteName: groupID) {
             if let glucose = context.glucose, let unit = context.displayGlucoseUnit {
                 defaults.set(glucose.doubleValue(for: unit), forKey: "widget_glucose_value")
                 defaults.set(unit.unitString, forKey: "widget_glucose_unit")

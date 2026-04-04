@@ -14,9 +14,7 @@ struct GlucoseEntry: TimelineEntry {
 }
 
 struct GlucoseTimelineProvider: TimelineProvider {
-
-    /// Glucose older than 15 minutes is stale.
-    private let stalenessInterval: TimeInterval = 15 * 60
+    let stalenessInterval: TimeInterval = 15 * 60
 
     func placeholder(in context: Context) -> GlucoseEntry { .placeholder }
 
@@ -36,33 +34,35 @@ struct GlucoseTimelineProvider: TimelineProvider {
             let df = DateFormatter(); df.dateFormat = "MMM d"
             let staleDate = Date().addingTimeInterval(stalenessInterval)
             entries.append(GlucoseEntry(
-                date: staleDate,
-                glucose: "---",
-                trend: "",
-                age: "",
-                isStale: true,
-                dateString: df.string(from: staleDate)
+                date: staleDate, glucose: "---", trend: "", age: "",
+                isStale: true, dateString: df.string(from: staleDate)
             ))
         }
 
-        let refreshDate = Date().addingTimeInterval(5 * 60)
-        completion(Timeline(entries: entries, policy: .after(refreshDate)))
+        completion(Timeline(entries: entries, policy: .after(Date().addingTimeInterval(5 * 60))))
     }
 
-    /// Reads glucose synchronously from UserDefaults.standard.
-    /// On watchOS, the WatchApp Extension and WatchWidget Extension
-    /// share the same app container, so UserDefaults.standard is shared.
-    /// No App Groups or HealthKit queries needed.
+    /// Reads glucose from the shared App Group UserDefaults.
+    /// The WatchApp Extension writes here whenever it receives
+    /// new glucose data from the phone via WatchConnectivity.
     private func readGlucose() -> GlucoseEntry {
         let df = DateFormatter(); df.dateFormat = "MMM d"
         let dateStr = df.string(from: Date())
+        let staleEntry = GlucoseEntry(
+            date: Date(), glucose: "---", trend: "", age: "", isStale: true, dateString: dateStr
+        )
 
-        let defaults = UserDefaults.standard
+        // Read the App Group identifier from Info.plist
+        guard let groupID = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String,
+              !groupID.isEmpty,
+              let defaults = UserDefaults(suiteName: groupID) else {
+            return staleEntry
+        }
+
         let glucoseValue = defaults.double(forKey: "widget_glucose_value")
-
         guard glucoseValue > 0,
               let glucoseDate = defaults.object(forKey: "widget_glucose_date") as? Date else {
-            return GlucoseEntry(date: Date(), glucose: "---", trend: "", age: "", isStale: true, dateString: dateStr)
+            return staleEntry
         }
 
         let trendSymbol = defaults.string(forKey: "widget_glucose_trend") ?? ""
@@ -84,12 +84,9 @@ struct GlucoseTimelineProvider: TimelineProvider {
         else { age = "\(min/60)h\(min%60)m" }
 
         return GlucoseEntry(
-            date: Date(),
-            glucose: stale ? "---" : glucoseStr,
-            trend: stale ? "" : trendSymbol,
-            age: age,
-            isStale: stale,
-            dateString: dateStr
+            date: Date(), glucose: stale ? "---" : glucoseStr,
+            trend: stale ? "" : trendSymbol, age: age,
+            isStale: stale, dateString: dateStr
         )
     }
 }
