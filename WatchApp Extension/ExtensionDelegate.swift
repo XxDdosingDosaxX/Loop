@@ -110,21 +110,22 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             switch task {
             case let bgTask as WKApplicationRefreshBackgroundTask:
                 log.default("Processing WKApplicationRefreshBackgroundTask")
-                // Schedule the next background refresh (~5 min)
                 scheduleBackgroundRefresh()
-                // Re-read the latest application context from the phone.
-                // This always contains the most recent data the phone sent,
-                // even if the watch app was suspended when it arrived.
-                if WCSession.default.activationState == .activated {
-                    let ctx = WCSession.default.receivedApplicationContext
-                    if !ctx.isEmpty {
-                        self.updateContext(ctx)
-                    }
+                // Read cached context directly -- no activation needed
+                let rawCtx = WCSession.default.receivedApplicationContext
+                log.default("Background wake: rawCtx has %d keys, gv=%{public}@", rawCtx.count, String(describing: rawCtx["gv"]))
+                self.writeGlucoseFromRawContext(rawCtx)
+                if #available(watchOSApplicationExtension 9.0, *) {
+                    WidgetCenter.shared.reloadAllTimelines()
                 }
-                // Wait 3 seconds for any additional WCSession data,
-                // then write context and reload widget.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                    self.writeGlucoseToSharedDefaults()
+                if WCSession.default.activationState != .activated {
+                    WCSession.default.activate()
+                }
+                // Hold task 2 sec for fresh WCSession data
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    let freshCtx = WCSession.default.receivedApplicationContext
+                    self.log.default("After 2s: freshCtx gv=%{public}@", String(describing: freshCtx["gv"]))
+                    self.writeGlucoseFromRawContext(freshCtx)
                     if #available(watchOSApplicationExtension 9.0, *) {
                         WidgetCenter.shared.reloadAllTimelines()
                     }
@@ -161,6 +162,28 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             } else {
                 task.setTaskCompleted()
             }
+        }
+    }
+
+    /// Writes glucose from a raw WatchContext dict to shared UserDefaults.
+    /// No WCSession activation needed -- reads raw keys directly.
+    private func writeGlucoseFromRawContext(_ rawContext: [String: Any]) {
+        guard let groupID = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String,
+              let defaults = UserDefaults(suiteName: groupID) else { return }
+        if let gv = rawContext["gv"] as? Double, gv > 0 {
+            defaults.set(gv, forKey: "widget_glucose_value")
+        }
+        if let gd = rawContext["gd"] as? Date {
+            defaults.set(gd, forKey: "widget_glucose_date")
+        }
+        if let gu = rawContext["gu"] as? String {
+            defaults.set(gu, forKey: "widget_glucose_unit")
+        }
+        if let gt = rawContext["gt"] as? Int,
+           let trend = GlucoseTrend(rawValue: gt) {
+            defaults.set(trend.symbol, forKey: "widget_glucose_trend")
+        } else {
+            defaults.removeObject(forKey: "widget_glucose_trend")
         }
     }
 
