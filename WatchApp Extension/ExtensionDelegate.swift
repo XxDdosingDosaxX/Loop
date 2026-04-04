@@ -83,8 +83,9 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             WCSession.default.activate()
         }
 
-        // Reload WidgetKit timelines when app becomes active
+        // Write current context and reload WidgetKit timelines when app becomes active
         // (e.g. user taps complication to open app, then returns to watch face)
+        writeGlucoseToSharedDefaults()
         if #available(watchOSApplicationExtension 9.0, *) {
             WidgetCenter.shared.reloadAllTimelines()
         }
@@ -107,15 +108,24 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
 
         for task in backgroundTasks {
             switch task {
-            case is WKApplicationRefreshBackgroundTask:
+            case let bgTask as WKApplicationRefreshBackgroundTask:
                 log.default("Processing WKApplicationRefreshBackgroundTask")
-                // Reload WidgetKit timelines on each background wake
-                if #available(watchOSApplicationExtension 9.0, *) {
-                    WidgetCenter.shared.reloadAllTimelines()
-                }
                 // Schedule the next background refresh (~5 min)
                 scheduleBackgroundRefresh()
-                break
+                // Wait 3 seconds for WCSession to deliver any pending data,
+                // then write whatever context we have and reload the widget.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    self.writeGlucoseToSharedDefaults()
+                    if #available(watchOSApplicationExtension 9.0, *) {
+                        WidgetCenter.shared.reloadAllTimelines()
+                    }
+                    if #available(watchOSApplicationExtension 4.0, *) {
+                        bgTask.setTaskCompletedWithSnapshot(false)
+                    } else {
+                        bgTask.setTaskCompleted()
+                    }
+                }
+                return // Don't fall through to immediate task completion
             case let task as WKSnapshotRefreshBackgroundTask:
                 log.default("Processing WKSnapshotRefreshBackgroundTask")
                 task.setTaskCompleted(restoredDefaultState: false, estimatedSnapshotExpiration: Date(timeIntervalSinceNow: TimeInterval(minutes: 5)), userInfo: nil)
@@ -142,6 +152,27 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
             } else {
                 task.setTaskCompleted()
             }
+        }
+    }
+
+    /// Writes the current glucose context to shared App Group UserDefaults
+    /// so the WidgetKit widget can read it, even if loopManagerDidUpdateContext
+    /// hasn't fired yet.
+    private func writeGlucoseToSharedDefaults() {
+        guard let context = loopManager.activeContext,
+              let groupID = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String,
+              let defaults = UserDefaults(suiteName: groupID) else { return }
+        if let glucose = context.glucose, let unit = context.displayGlucoseUnit {
+            defaults.set(glucose.doubleValue(for: unit), forKey: "widget_glucose_value")
+            defaults.set(unit.unitString, forKey: "widget_glucose_unit")
+        }
+        if let date = context.glucoseDate {
+            defaults.set(date, forKey: "widget_glucose_date")
+        }
+        if let trend = context.glucoseTrend {
+            defaults.set(trend.symbol, forKey: "widget_glucose_trend")
+        } else {
+            defaults.removeObject(forKey: "widget_glucose_trend")
         }
     }
 
