@@ -112,8 +112,17 @@ final class ExtensionDelegate: NSObject, WKExtensionDelegate {
                 log.default("Processing WKApplicationRefreshBackgroundTask")
                 // Schedule the next background refresh (~5 min)
                 scheduleBackgroundRefresh()
-                // Wait 3 seconds for WCSession to deliver any pending data,
-                // then write whatever context we have and reload the widget.
+                // Re-read the latest application context from the phone.
+                // This always contains the most recent data the phone sent,
+                // even if the watch app was suspended when it arrived.
+                if WCSession.default.activationState == .activated {
+                    let ctx = WCSession.default.receivedApplicationContext
+                    if !ctx.isEmpty {
+                        self.updateContext(ctx)
+                    }
+                }
+                // Wait 3 seconds for any additional WCSession data,
+                // then write context and reload widget.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                     self.writeGlucoseToSharedDefaults()
                     if #available(watchOSApplicationExtension 9.0, *) {
