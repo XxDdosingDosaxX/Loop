@@ -114,14 +114,14 @@ struct CircularView: View {
 struct CornerView: View {
     let entry: GlucoseEntry
     var body: some View {
-        VStack(alignment: .trailing, spacing: 0) {
-            Text(entry.glucose + entry.trend)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundColor(entry.isStale ? .gray : .white)
-            Text("\(entry.dateString) | \(entry.age)")
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
-        }
+        Text(entry.glucose)
+            .font(.system(size: 22, weight: .bold, design: .rounded))
+            .foregroundColor(entry.isStale ? .gray : .white)
+            .minimumScaleFactor(0.6)
+            .widgetLabel {
+                Text(entry.trend + " " + entry.age)
+                    .foregroundColor(entry.isStale ? .gray : .white)
+            }
     }
 }
 
