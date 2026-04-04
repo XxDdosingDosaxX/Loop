@@ -217,17 +217,19 @@ final class WatchDataManager: NSObject {
             complicationShouldUpdate = true
         }
 
-        if session.isComplicationEnabled && complicationShouldUpdate {
-            log.default("transferCurrentComplicationUserInfo")
+        if complicationShouldUpdate {
+            // Always use high-priority complication transfer when pacing allows,
+            // regardless of isComplicationEnabled (which may not detect WidgetKit
+            // widgets). This wakes the watch extension to process the data.
+            log.default("transferCurrentComplicationUserInfo (remaining: %d)", session.remainingComplicationUserInfoTransfers)
             session.transferCurrentComplicationUserInfo(context.rawValue)
             lastComplicationContext = context
         } else {
-            do {
-                log.default("updateApplicationContext")
-                try session.updateApplicationContext(context.rawValue)
-            } catch let error {
-                log.error("%{public}@", String(describing: error))
-            }
+            // Fall back to transferUserInfo (queued delivery, medium priority)
+            // instead of updateApplicationContext (lazy, low priority).
+            // This matches xDrip's approach for reliable background delivery.
+            log.default("transferUserInfo (between complication transfers)")
+            session.transferUserInfo(context.rawValue)
         }
     }
 
