@@ -162,7 +162,7 @@ struct GlucoseWidget: Widget {
         }
         .configurationDisplayName("Glucose")
         .description("Live glucose from Loop")
-        .supportedFamilies([.accessoryRectangular, .accessoryInline])
+        .supportedFamilies([.accessoryCircular, .accessoryCorner, .accessoryRectangular, .accessoryInline])
     }
 }
 
